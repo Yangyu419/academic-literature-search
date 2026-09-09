@@ -1,332 +1,226 @@
 # Academic Literature Search
 
-一个面向 Agent 的学术文献检索 Skill，以及可独立安装的 Python 工具包。项目用于从公开学术数据源发现、整理和筛选文献，并在确认存在合法公开全文入口后，按用户选择下载文件。
+一个可作为 Agent Skill 使用、也可独立安装的 Python 学术文献检索工具。它在现有“研究主题澄清 → 多源检索 → Excel 汇总 → 用户确认后下载”流程上，增加了专业 Provider、合法全文解析、本地文献查重、manifest、临时文件、PDF 校验、SHA256 二次去重和结构化归档。
 
-## 项目解决的问题
+## 能做什么
 
-学术检索通常同时面临以下问题：
+- 对宽泛主题先提问，对明确主题直接检索。
+- 通过 QueryPlanner 做有限的中英文关键词、同义词和缩写扩展。
+- 聚合 Crossref、OpenAlex、Semantic Scholar、arXiv，以及按主题启用的 OSTI、HAL、CORE。
+- 对核工程主题提供 OSTI、NRC ADAMS、IAEA INIS、HAL-CEA 入口；NRC ADAMS 和 INIS 在没有稳定公开 API 时采用 link-only，不虚构接口。
+- 使用 DOI、标题、作者、年份、来源 ID 和严格模糊标题规则去重。
+- 选择最佳合法获取入口；landing page 与实际 PDF 下载 URL 分开保存。
+- 只有用户明确执行第二阶段下载时才下载，并且只下载已验证的合法公开 PDF。
+- 下载前扫描目标文件夹，优先 DOI 精确查重；手动放入的 PDF 也会尝试读取 DOI、标题、作者和年份。
+- 下载后执行 PDF 文件头、Content-Type、大小、parser 和 SHA256 校验。
+- 输出 Excel、内部记录 JSON、`literature_manifest.json`、`download_report.csv` 和 `pdf/` 归档目录。
 
-1. 研究主题过于宽泛，直接搜索容易偏离真正的研究问题。
-2. 不同数据库的题名、作者、日期、期刊和 DOI 字段格式不一致。
-3. 同一篇论文可能在多个来源重复出现，需要可靠去重。
-4. DOI 页面、出版社详情页、机构仓储和开放 PDF 的可访问性不同，难以选择稳定且合法的入口。
-5. 论文下载涉及版权和访问限制，不能把普通详情页或错误网页误当成 PDF。
-6. 初次检索和下载混在一起时，容易在用户未确认范围前产生外部访问或文件写入。
+## 安装
 
-本项目将这些环节拆成可复用的流水线：主题判断与澄清、有限关键词扩展、多源检索、元数据规范化、去重与排序、合法访问入口选择、Excel 导出，以及用户明确选择后的安全下载。
+要求 Python 3.11+。
 
-## 主要功能
-
-- **主题澄清**：对 `核燃料`、`LLM agent` 等可能对应多个成熟子方向的输入给出澄清问题；主题不明确时不启动检索。
-- **检索计划生成**：解析年份、目标数量、文献类型和中英文关键词，并进行受控的同义词/缩写扩展。
-- **多源检索**：默认适配 Crossref、OpenAlex、Semantic Scholar 和 arXiv。每个来源独立失败，单个来源不可用时仍继续其他来源。
-- **开放获取补充**：配置 `UNPAYWALL_EMAIL` 后，可按 DOI 查询 Unpaywall 的开放获取位置。
-- **元数据处理**：规范化 DOI，保留无法确认的字段为空；通过 DOI、标准化题名和保守的模糊题名匹配去重。
-- **可解释排序**：根据题名/摘要词法匹配、DOI、摘要、开放获取信息和年份范围计算 0–100 的相关性分数。
-- **合法入口选择**：优先使用开放获取页面、机构仓储、合法公开文件，其次使用 DOI 或出版社详情页；不会猜测 DOI 或拼接未验证下载地址。
-- **Excel 导出**：生成 `Literature` 工作表，固定使用 8 列，包含中文题名和研究内容，并设置表头加粗、筛选、冻结首行和合理列宽；DOI 与访问链接仅保留为内部下载字段。
-- **安全下载**：只有 `download_permission_verified=True` 的记录可以下载；支持指定序号/范围和文献类型筛选。
-- **下载校验与报告**：设置超时、重试和访问间隔，检查 HTTP 状态、Content-Type、PDF 文件头和最小文件大小，并输出 `download_report.csv`。
-- **工作流状态保护**：提供 `TaskStateMachine`，供 Agent 或上层集成确保只有在 Excel 导出并获得用户选择后才进入下载阶段。
-
-## 安装方法
-
-### 运行环境
-
-- Python 3.11 或更高版本
-- 网络连接：检索时需要访问公开学术 API；离线环境只能使用已有数据调用导出/分析功能
-- 运行时依赖：`requests>=2.31,<3`、`openpyxl>=3.1,<4`
-
-### Windows PowerShell
-
-在项目根目录执行：
-
-```powershell
-py -3.11 -m venv .venv
+```bash
+python -m venv .venv
+# Windows PowerShell
 .\.venv\Scripts\Activate.ps1
+# macOS/Linux: source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-### macOS/Linux
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e .
-```
-
-安装完成后可检查 CLI 是否可用：
-
-```bash
-literature-search --help
-```
-
-运行测试需要额外安装测试工具，因为 `pytest` 不是运行时依赖：
+开发测试依赖：
 
 ```bash
 python -m pip install pytest
 python -m pytest
 ```
 
-## 使用方法
+运行时依赖为 `requests`、`openpyxl` 和 `pypdf`。
 
-### 命令行检索
+## 使用
+
+### 第一阶段：检索并导出
 
 ```bash
-literature-search "2021-2026 AI finite element analysis surrogate models" --target 50 --output-dir results
+literature-search search "2020-2026 M5 cladding high burnup corrosion" --target 50 --output-dir literature_output
 ```
 
-参数含义：
+也兼容旧调用：
 
-- `topic`：研究主题或研究问题，必填。
-- `--target`：最终保留的记录数，默认 30，程序限制在 1–200 之间。
-- `--output-dir`：Excel 输出目录，默认当前目录；CLI 会直接在该目录下生成带时间戳的 `.xlsx` 文件。
-- `--log-level`：`DEBUG`、`INFO`、`WARNING` 或 `ERROR`，默认 `INFO`。
+```bash
+literature-search "AI finite element surrogate model" --target 30
+```
 
-初次检索只导出 Excel，不会自动下载文件。CLI 会输出原始候选数、去重后的最终数量、已确认存在合法公开下载入口的数量、Excel 路径和来源失败信息。
-
-### 宽泛主题的澄清行为
+宽泛主题会先停止并提示澄清：
 
 ```bash
 literature-search "核燃料"
 ```
 
-程序会输出类似下面的澄清问题，并以退出码 `2` 结束，不进行检索：
+此时不会启动多源检索，也不会下载文件。检索阶段输出 Excel 和 `metadata/records_时间戳.json`，并在 Excel 旁保留内部记录，供第二阶段使用。
 
-```text
-当前主题可能对应多个明显不同的研究方向。
-1. 你希望重点研究燃料材料、芯块、包壳、燃料棒/组件、热工水力、辐照行为、事故容错燃料、燃耗、制造工艺还是堆芯设计？也可以选择综合检索。
-```
+### 第二阶段：用户确认后下载
 
-加入研究对象、问题或年份后，主题通常可以直接进入检索，例如：
+下载全部已确认合法公开的全文：
 
 ```bash
-literature-search "2021-2026 zirconium alloy fuel cladding irradiation damage journal articles" --target 30 --output-dir results
+literature-search download literature_output/literature_search_YYYYMMDD_HHMMSS.xlsx
 ```
 
-### Python API
+按序号/范围下载：
 
-下面的例子对应当前公开 API：先检索并导出，再由调用方在获得用户明确选择后调用下载器。
-
-```python
-from pathlib import Path
-
-from literature_finder.downloader import SafeDownloader, parse_selection
-from literature_finder.excel_writer import write_excel
-from literature_finder.pipeline import run_search
-from literature_finder.query_planner import parse_request
-
-request = parse_request(
-    "2021-2026 AI finite element analysis surrogate models",
-    target_count=50,
-)
-
-plan, result = run_search(request)
-output_dir = Path("results")
-workbook_path = write_excel(
-    result.records,
-    output_dir / "literature_search_20260905_163000.xlsx",
-)
-
-print("原始候选：", result.raw_candidate_count)
-print("最终记录：", len(result.records))
-print("Excel：", workbook_path)
-print("来源失败：", [(item.source, item.error) for item in result.failures])
-
-# 必须先由用户选择下载范围，再把选择传给下载器。
-selected = parse_selection("2, 5, 8-12", len(result.records))
-download_results = SafeDownloader(
-    timeout=30.0,
-    retries=2,
-    min_interval=1.0,
-).download(result.records, output_dir, selected=selected)
-
-# 也可以按文献类型筛选，例如：
-# SafeDownloader().download(result.records, output_dir, type_filter={"期刊论文"})
+```bash
+literature-search download literature_output/literature_search_YYYYMMDD_HHMMSS.xlsx --selection "1,3,8-12"
 ```
 
-`parse_selection` 支持英文逗号、中文逗号、空格和连字符范围，例如 `1, 3, 8-10`；序号从 1 开始，超出总记录数的项会被忽略。`SafeDownloader` 本身不负责询问用户，用户确认逻辑由 CLI 外的 Agent、UI 或调用方负责。
+按类型、相关性或年份筛选：
 
-## 输入输出实例
+```bash
+literature-search download results.xlsx --type "博士论文,期刊论文"
+literature-search download results.xlsx --threshold 80 --start-year 2020 --end-year 2026
+```
 
-### 输入
+强制重新下载不是默认行为，只有显式传入以下参数才会忽略本地存在检查：
 
-命令：
+```bash
+literature-search download results.xlsx --force-redownload
+```
+
+## 本地文献查重
+
+每次下载任务开始时，`LocalLibraryChecker` 会先扫描目标目录中的所有 PDF，并加载或更新 `literature_manifest.json`。扫描不依赖文件名，优先级如下：
+
+1. 规范化 DOI 精确匹配；
+2. Provider 唯一 ID（OpenAlex、OSTI、arXiv、HAL、CORE、NRC 等）匹配；
+3. 标准化标题 + 第一作者 + 年份；
+4. 标题相似度至少 0.95，且第一作者一致、年份差不超过 1 年；
+5. 生成目标文件名后检查有效 PDF。
+
+如果命中本地文献，记录会标记为 `skipped_existing`，写入已有路径和匹配原因，且在调用 HTTP 客户端之前直接跳过。核心验收条件由测试明确断言：`mock_http_get.assert_not_called()`。
+
+手动放入的 PDF 没有 manifest 记录时，扫描器会读取 PDF 前两页文本和 metadata，尝试提取 DOI、标题、第一作者和年份，并将识别结果补入 manifest。没有 DOI 的文献只有在严格标题/作者/年份规则成立时才自动判重；作者不同的相似标题不会被自动视为重复。
+
+下载完成后还会计算 SHA256。如果新临时文件与已有 PDF 内容相同，则删除临时文件并标记 `skipped_duplicate`，不会保留第二份。
+
+## 输出结构
 
 ```text
-literature-search "2021-2026 AI finite element analysis surrogate models" --target 50 --output-dir results
+literature_output/
+├── literature_search_YYYYMMDD_HHMMSS.xlsx
+├── metadata/
+│   ├── records_YYYYMMDD_HHMMSS.json
+│   └── records.json
+├── literature_manifest.json
+├── download_report.csv
+├── pdf/
+├── logs/
+├── failed/
+└── .download_tmp/
 ```
 
-等价的核心请求对象：
-
-```python
-from literature_finder.models import ResearchRequest
-
-ResearchRequest(
-    topic="2021-2026 AI finite element analysis surrogate models",
-    target_count=50,
-    start_year=2021,
-    end_year=2026,
-)
-```
-
-### 命令行输出示例
-
-下面的数量会随数据源返回结果和网络状态变化，仅展示输出格式：
-
-```text
-[INFO] Searching Crossref: 2021-2026 AI finite element analysis surrogate models
-[INFO] Searching OpenAlex: 2021-2026 AI finite element analysis surrogate models
-检索完成：原始候选 128，去重后/最终保留 50
-合法公开下载入口：18
-Excel：results\literature_search_20260905_163000.xlsx
-下一步：仅保留 Excel，或在用户明确选择后调用 SafeDownloader；不会自动下载。
-失败来源：Semantic Scholar: request failed ...
-```
-
-如果没有来源失败，CLI 不输出“失败来源”行。实际输出中的候选数、最终数量和失败信息不能预先固定。
-
-### Excel 输出
-
-`Literature` 工作表固定包含以下 8 列：
+Excel 工作表名为 `Literature`。原有 8 列仍保留在前部：
 
 ```text
 序号 | 文献类型 | 文献名 | 中文名 | 文献发表日期 | 期刊/来源 | 研究内容 | 备注
 ```
 
-示例记录：
+后续增加：相关性评分、作者、年份、出版商、DOI、摘要、关键词、OA 状态、最佳合法获取链接、PDF 链接、全文来源、检索数据库、下载状态、本地存在状态、本地路径、重复判断方式、是否重复和 SHA256。表头加粗、冻结首行、自动筛选；DOI 为文本；合法链接和 PDF 链接可点击。
 
-| 序号 | 文献类型 | 文献名 | 中文名 | 文献发表日期 | 期刊/来源 | 研究内容 | 备注 |
-|---:|---|---|---|---|---|---|---|
-| 1 | 期刊论文 | Example surrogate model for finite element analysis | 有限元分析的示例代理模型 | 2024-01-02 | Example Journal | 介绍用代理模型替代部分有限元计算，以加速结构响应预测。 | Open Access 或出版社详情页；下载资格由内部字段判断 |
+状态包括：`pending`、`downloading`、`downloaded`、`skipped_existing`、`skipped_duplicate`、`unavailable`、`failed`、`invalid_pdf`、`corrupt`。
 
-`文献名`保留官方原始题名；英文题名必须翻译到`中文名`列，其他语言题名可填写原题名或人工核对后的中文译名。`研究内容`应以摘要或全文为依据，用 1–3 句简要说明研究对象、方法和主要结论；没有摘要时标记为`未获取摘要，需人工补充`，不得凭空补写。DOI、最佳合法获取入口、下载 URL 和下载来源仍保留在内部 `LiteratureRecord` 字段中，仅供合法下载流程使用，不写入 Excel，也不生成超链接。
+## API Key 与配置
 
-### 下载输出
-
-当调用方把同一个结果目录传给 `SafeDownloader` 时，目录结构为：
+复制 `.env.example` 为 `.env`，或通过环境变量配置：
 
 ```text
-results/
-├── literature_search_20260905_163000.xlsx
-├── download_report.csv
-└── papers/
-    ├── 001_Smith_2024_Example surrogate model for finite element analysis.pdf
-    └── ...
+CORE_API_KEY=
+UNPAYWALL_EMAIL=you@example.org
+OPENALEX_EMAIL=
+CROSSREF_MAILTO=you@example.org
+SEMANTIC_SCHOLAR_API_KEY=
 ```
 
-`download_report.csv` 的列为：
+CORE 未配置 `CORE_API_KEY` 时自动跳过，不影响其他来源。Unpaywall 需要 email 参数；没有 DOI 或未配置 email 时不调用。项目不会打印、提交或写入日志的密钥、Cookie、密码和 token。
 
-```text
-序号,文献名,状态,文件名,来源链接,失败原因
-```
+官方接口参考：
 
-状态值来自当前下载器：
+- [Crossref REST API](https://api.crossref.org/)
+- [OpenAlex API](https://help.openalex.org/)
+- [Unpaywall API 与数据格式](https://unpaywall.org/data-format)
+- [CORE API](https://core.ac.uk/services/api)
+- [OSTI.GOV API](https://www.osti.gov/api/v1/docs)
+- [HAL API](https://api.hal.science/docs/search)
+- [NRC ADAMS Public Search API](https://adams-api-developer.nrc.gov/)
+- [IAEA INIS Repository Search](https://inis.iaea.org/search/)
+- [arXiv API Access](https://info.arxiv.org/help/api/index.html)
 
-- `downloaded`：本次成功下载并通过校验。
-- `already_exists`：目标文件已存在且大小大于 0。
-- `failed`：请求失败、响应不是 PDF、文件过小或写入失败。
-- `skipped`：记录未被确认具有合法公开下载资格。
+## 合法性和版权边界
 
-## 数据源与 API 配置
+本项目只从公开 API、出版社 OA 页面、机构仓储、作者合法公开版本、官方报告、公开学位论文和 arXiv 等合法来源检索和获取资源。
 
-默认检索适配器：
+本项目不会：
 
-- Crossref REST API
-- OpenAlex Works API
-- Semantic Scholar Academic Graph API
-- arXiv Atom API
+- 绕过付费墙、账号登录、机构认证、访问控制或 CAPTCHA；
+- 使用 Sci-Hub、盗版数据库、影子文献库或泄露 Cookie/token；
+- 绕过 robots、Cloudflare、限流或其他反爬措施；
+- 构造未经来源确认的 DOI/PDF URL；
+- 将 HTML 错误页、登录页或 Access denied 页面保存为 PDF。
 
-可选环境变量：
-
-| 环境变量 | 用途 |
-|---|---|
-| `CROSSREF_MAILTO` | 向 Crossref 请求中附加 `mailto`，便于礼貌访问和服务联系 |
-| `OPENALEX_EMAIL` | 向 OpenAlex 请求中附加 `mailto` |
-| `SEMANTIC_SCHOLAR_API_KEY` | Semantic Scholar API 请求头中的可选 API key |
-| `UNPAYWALL_EMAIL` | 按 DOI 查询 Unpaywall 开放获取位置 |
-
-PowerShell 临时设置示例：
-
-```powershell
-$env:UNPAYWALL_EMAIL = "you@example.org"
-$env:OPENALEX_EMAIL = "you@example.org"
-```
-
-bash/zsh 示例：
-
-```bash
-export UNPAYWALL_EMAIL="you@example.org"
-export OPENALEX_EMAIL="you@example.org"
-```
-
-项目不会读取或打印密钥，也不要求配置这些变量才能运行基础检索。公开 API 可能限流或变更，适配器会独立记录失败并继续运行。
-
-相关公开接口文档：[Crossref REST API](https://api.crossref.org/)、[OpenAlex API](https://docs.openalex.org/)、[Semantic Scholar API](https://www.semanticscholar.org/product/api)、[arXiv API](https://info.arxiv.org/help/api/) 和 [Unpaywall API](https://unpaywall.org/products/api)。
-
-## 合法性与下载安全
-
-项目只使用公开 API、开放获取页面、机构仓储、合法作者版本和其他可公开访问的入口。它不会：
-
-- 登录账号、使用机构 Cookie 或读取泄露凭据；
-- 绕过付费墙、机构认证、验证码、robots 规则、反爬措施或访问限流；
-- 使用盗版数据库、Sci-Hub 或其他未授权资源；
-- 根据题名猜测 DOI，或拼接未经来源确认的下载 URL；
-- 把 HTML 错误页保存成 PDF 文件。
-
-“公开可访问”不等于用户拥有任意转载或再分发权。使用者仍需遵守来源网站条款、许可证和适用法律。
+公开可访问不等于可以任意转载或再分发。使用者仍须遵守来源服务条款、许可证和适用法律。
 
 ## 项目结构
 
 ```text
-academic-literature-search/
-├── agents/openai.yaml                 # Agent Skill 的显示信息和默认提示词
-├── src/literature_finder/
-│   ├── cli.py                          # literature-search 命令行入口
-│   ├── pipeline.py                     # 检索流水线
-│   ├── query_planner.py                # 请求解析与查询计划
-│   ├── search.py                       # 多适配器检索与失败隔离
-│   ├── metadata.py                     # DOI/题名规范化与合并
-│   ├── dedup.py                        # 去重
-│   ├── ranking.py                      # 相关性排序
-│   ├── link_resolver.py                # 合法入口和 OA 资格处理
-│   ├── excel_writer.py                 # 8 列 Excel 导出
-│   ├── downloader.py                   # 选择性 PDF 下载与报告
-│   ├── state_machine.py                # 下载前置状态保护
-│   └── sources/                        # 各公开学术数据源适配器
-├── tests/                              # 单元测试
-├── SKILL.md                            # Agent Skill 行为约定
-├── pyproject.toml                      # 打包、依赖和 CLI 配置
-└── LICENSE                             # MIT License
+src/literature_finder/
+├── models.py                 # 统一 LiteratureRecord
+├── query_planner.py          # 请求解析和关键词扩展
+├── domain_router.py          # 按主题选择专业来源
+├── search.py                 # 多 Provider 检索与失败隔离
+├── metadata.py               # DOI/标题/年份规范化
+├── dedup.py                  # 元数据去重
+├── link_resolver.py          # 合法入口和 OA 解析
+├── excel_writer.py           # 扩展字段 Excel
+├── persistence.py            # 内部 records JSON
+├── library/
+│   ├── scanner.py            # 本地 PDF 扫描和元数据提取
+│   ├── detector.py           # ExistingDocumentResult 查重
+│   └── manifest.py           # literature_manifest.json
+├── download/
+│   ├── manager.py             # 下载前查重、临时文件、二次 hash 去重
+│   └── validator.py           # PDF 校验和 SHA256
+├── downloader.py             # SafeDownloader 兼容入口
+└── sources/                  # Crossref/OpenAlex/CORE/OSTI/HAL 等适配器
 ```
 
-## 已知限制
+## 测试与已知限制
 
-- 默认不抓取中国商业数据库；`GenericWebAdapter` 只生成合法的检索入口 URL，不抓取搜索引擎或出版社页面。
-- 元数据、引用数和开放获取信号依赖上游服务；来源异常时可能出现空字段或失败记录。
-- 当前相关性排序是可解释的词法排序，不是语义向量排序。
-- arXiv 通过公开 Atom API 检索，因此在 arXiv 覆盖较好的领域效果更好。
-- CLI 没有交互式下载参数；它在 Excel 导出后停止。下载需要由 Agent/UI/调用方明确传入序号集合或文献类型筛选。
-- 下载器不会保证所有标记为开放获取的出版社页面都能被自动化 HTTP 客户端直接取得；遇到 403 或非 PDF 响应时会记录失败并保留页面入口。
-
-## 开发与贡献
-
-新增数据源或行为时，请同时添加单元测试，并保持：
-
-- 单个来源失败不阻断整次检索；
-- DOI 和开放获取信息必须来自真实来源；
-- 不提交密钥、机构 Cookie 或本地绝对路径；
-- 说明数据源的服务条款、访问频率和许可证边界。
-
-运行测试：
+运行：
 
 ```bash
-python -m pip install pytest
-python -m pytest
+python -m pytest -q
 ```
 
-## 许可证
+测试覆盖澄清、查询扩展、来源失败隔离、DOI 元数据去重、本地 DOI/来源 ID/标题/文件名查重、手动 PDF 识别、manifest、下载前不发 HTTP、强制下载覆盖开关、PDF 校验和 SHA256 二次去重。
+
+已知限制：NRC ADAMS 和 INIS 的自动化结构化检索需要依赖官方 API 订阅或接口变化，目前以 link-only 入口为主；中国商业数据库未作为核心爬虫接入；相关性排序仍是可解释的词法评分，并默认过滤低于 45 分的候选；上游 API 的限流、字段变化和 OA 标注可能导致空字段或失败记录；下载器不会把出版社登录页视为可下载全文。
+
+## Roadmap
+
+- 增加更多官方 API 和机构 repository adapter；
+- 将 DOI/标题语义排序升级为可选向量排序；
+- 在不破坏两阶段确认和合法性边界的前提下增加批量任务恢复；
+- 提供 SQLite 索引作为大规模本地库的可选后端。
+
+## Contributing
+
+新增 Provider 时请：
+
+1. 只使用官方 API 或明确允许的结构化端点；
+2. 继承或遵循 `SourceAdapter`，单个 Provider 失败不能中断整次检索；
+3. 提供字段映射和来源 ID；
+4. 添加 mock 单元测试，不依赖实时网络；
+5. 不提交 `.env`、密钥、本地绝对路径、下载缓存或用户文献。
+
+## License
 
 MIT License，详见 [LICENSE](LICENSE)。

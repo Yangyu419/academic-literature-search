@@ -60,6 +60,35 @@ class LiteratureRecord:
     title_zh: str | None = None
     research_content: str | None = None
 
+    # Extended metadata and download bookkeeping. These fields are appended
+    # to preserve the original positional constructor used by early clients.
+    id: str | None = None
+    title_normalized: str | None = None
+    year: int | None = None
+    journal_or_source: str | None = None
+    publisher: str | None = None
+    doi_normalized: str | None = None
+    best_legal_access_url: str | None = None
+    keywords: list[str] = field(default_factory=list)
+    source_database: str | None = None
+    source_record_id: str | None = None
+    source_ids: dict[str, str] = field(default_factory=dict)
+    landing_page_url: str | None = None
+    is_open_access: bool = False
+    oa_status: str | None = None
+    oa_version: str | None = None
+    pdf_url: str | None = None
+    pdf_source: str | None = None
+    relevance_reason: str | None = None
+    download_status: str = "pending"
+    download_path: str | None = None
+    download_error: str | None = None
+    existing_local_copy: bool = False
+    existing_local_path: str | None = None
+    duplicate_reason: str | None = None
+    file_hash_sha256: str | None = None
+    duplicate_group: str | None = None
+
 
 @dataclass(slots=True)
 class SourceFailure:

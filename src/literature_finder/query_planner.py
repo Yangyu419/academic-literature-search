@@ -72,7 +72,11 @@ def _queries(concepts: list[str], expanded: list[str], request: ResearchRequest)
     for term in expanded:
         if term.casefold() == base.casefold():
             continue
-        queries.append(f'"{term}"')
+        # Avoid issuing noisy one-word English searches. Keep phrases,
+        # hyphenated identifiers, and Chinese terms as useful standalone
+        # queries; connect ordinary English concepts to an anchor instead.
+        if " " in term or "-" in term or re.search(r"[\u4e00-\u9fff]", term):
+            queries.append(f'"{term}"')
     if len(expanded) >= 2:
         queries.extend([f'"{expanded[0]}" "{term}"' for term in expanded[1:8]])
     if request.literature_types:

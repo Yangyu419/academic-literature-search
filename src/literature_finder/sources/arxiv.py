@@ -32,7 +32,11 @@ class ArxivAdapter:
                 publisher_url=abs_url, open_access_url=abs_url, authors=[(a.findtext(f"{{{self.atom}}}name") or "") for a in entry.findall(f"{{{self.atom}}}author")],
                 abstract=" ".join((entry.findtext(f"{{{self.atom}}}summary") or "").split()), metadata_sources=[self.name],
                 is_downloadable=bool(arxiv_id), download_url=f"https://arxiv.org/pdf/{arxiv_id}" if arxiv_id else None,
-                download_source="arXiv", download_file_type="pdf", download_permission_verified=bool(arxiv_id), raw={"arxiv_id": arxiv_id},
+                download_source="arXiv", download_file_type="pdf", download_permission_verified=bool(arxiv_id),
+                source_database=self.name, source_record_id=arxiv_id,
+                source_ids={"arxiv": arxiv_id} if arxiv_id else {}, landing_page_url=abs_url,
+                is_open_access=bool(arxiv_id), oa_status="open" if arxiv_id else None, oa_version="submittedVersion",
+                pdf_url=f"https://arxiv.org/pdf/{arxiv_id}" if arxiv_id else None, pdf_source="arXiv",
+                raw={"arxiv_id": arxiv_id},
             ))
         return output
-

@@ -1,33 +1,64 @@
 ---
 name: academic-literature-search
-description: 面向学术文献检索的 Agent Skill：澄清模糊研究主题，检索公开学术数据源，核验元数据，选择最佳合法获取链接，并导出 Excel 文献清单；适用于查找和整理论文、学位论文、报告及预印本。
+description: 面向学术文献检索的 Agent Skill：先判断研究主题是否需要澄清，再进行多源检索、元数据核验、合法全文解析、Excel 导出和用户确认后的受控下载；适用于论文、学位论文、会议论文、技术报告和预印本。
 metadata:
-  short-description: 检索学术文献并导出合法获取链接
+  short-description: 多源检索、合法全文解析与本地去重下载
 ---
 
 # Academic Literature Search
 
-当用户提出“帮我找 XXX 的论文”、系统检索、近年文献检索、硕博士论文/期刊检索、寻找合法获取链接或可选下载等请求时，使用本 Skill。
+当用户要求“帮我找某方向的论文”“系统搜集国内外文献”“查找近年文献并整理 Excel”“寻找合法获取入口”或在确认后下载公开全文时使用本 Skill。
 
-## 交互约定
+## 交互边界
 
-1. 解析用户输入中的研究方向、研究对象、研究问题、方法、材料、时间范围、语言、文献类型、排除条件和目标数量。
-2. 检索前先判断主题是否存在明显歧义。如果主题可能对应多个成熟且差异很大的子方向（例如“核燃料”或“LLM agent”），先提出一个具体的限定问题并等待回答。用户已经给出足够范围时，不要反复追问。
-3. 对明确请求建立受控的中英文关键词、同义词、缩写和全称扩展，并针对不同数据源生成检索式。扩展必须有限且保持主题相关，不要无限发散。
-4. 检索多个公开学术来源。优先使用项目内置的 Crossref、OpenAlex、Semantic Scholar 和 arXiv 适配器。单个来源失败时记录失败并继续，不得抓取受限制页面、规避 robots 规则、破解 CAPTCHA 或绕过身份认证。
-5. 规范化并交叉核验元数据。DOI 必须来自真实返回结果，绝不根据标题猜测或拼接 DOI。无法确认的字段留空，并保留官方原始标题。
-6. 依次使用 DOI、标准化标题、标题加第一作者/年份，以及保守的模糊标题匹配去重。根据标题/摘要/核心概念匹配度、时间范围、来源质量和可用引用信息进行排序。
-7. 按稳定性与合法性解析 `best_access_url`：开放获取全文页面、官方公开文件、机构知识库、合法作者版本、公开学术存档、DOI 页面、出版社页面，最后才是其他可靠详情页。链接不要求以 `.pdf` 结尾。
-8. 将最终记录导出为 `.xlsx`，工作表名称为 `Literature`，且只使用以下 8 列：`序号 | 文献类型 | 文献名 | 中文名 | 文献发表日期 | 期刊/来源 | 研究内容 | 备注`。`文献名`保留官方原始题名；英文题名必须在`中文名`中给出中文翻译，非英文题名可填写原题名。`研究内容`用 1–3 句简要概括文章研究对象、方法和主要结论，优先依据摘要或全文；未取得摘要时填写`未获取摘要，需人工补充`，不得臆造。DOI 和访问链接只保留在内部记录中，用于合法下载解析，不得写入 Excel。表头加粗，启用筛选，冻结首行，设置合理列宽，不合并单元格。
-9. Excel 导出后必须暂停，并报告已确认存在合法公开下载入口的数量。让用户选择：仅保留 Excel、下载全部已确认记录、指定序号/范围下载，或按文献类型筛选下载。即使用户一开始要求下载，也必须先生成 Excel 并等待明确选择。
-10. 下载时只处理 `download_permission_verified == True` 的记录；DOI、出版社订阅页或普通详情页不能作为下载地址。设置超时、重试、低并发/访问间隔，检查 HTTP 状态、Content-Type、PDF 文件头和文件大小，清理文件名，并生成 `download_report.csv`。单篇失败不能中断其他下载。
+先解析研究对象、研究问题、关键词、方法、材料、时间范围、语言、文献类型、排除条件和目标数量。不要强制用户一次填写全部字段。
 
-## 安全与证据要求
+- 主题过于宽泛或存在多个明显不同的子方向时，先提出具体澄清问题，停止正式检索；例如“核燃料”应询问材料、芯块、包壳、燃料棒/组件、热工水力、辐照行为等侧重点。
+- 主题已足够明确时直接规划检索，不重复追问。
+- 生成有限的中英文关键词、同义词、缩写/全称和查询组合，始终保持主题相关，不无限扩展。
 
-只使用合法公开来源，并遵守来源网站的服务条款、robots 规则、版权要求和访问频率限制。禁止使用 Sci-Hub、盗版数据库、泄露凭据、机构 Cookie、付费墙绕过、验证码绕过、反爬绕过或伪造 URL。如果找不到合法全文入口，保留 DOI/出版社/详情页，并注明 `未找到合法开放全文入口` 或 `Subscription may be required`。
+## 检索与证据
 
-每条进入最终清单的记录至少要有一个可验证来源。报告原始候选数量、去重后数量、最终数量、已确认可下载数量、失败的数据源，以及需要人工核验的元数据。
+程序入口位于 `src/literature_finder/`。基础来源包括 Crossref、OpenAlex、Semantic Scholar 和 arXiv；按主题路由可启用 OSTI、HAL 和 CORE。核工程主题还提供 OSTI、NRC ADAMS、IAEA INIS、HAL-CEA 的专业入口，其中 NRC ADAMS/INIS 在没有稳定可用 API 时只生成合法检索入口，不伪造 API 或抓取受限页面。
 
-## 实现入口
+单个 Provider 失败、超时、限流或缺少 API Key 时必须记录并继续其他 Provider。DOI、标题、日期、来源、摘要和全文地址只能来自真实返回结果或官方页面；不得猜测 DOI、拼接未经验证的下载 URL，最终记录至少保留一个可验证来源。
 
-可复用 Python 实现位于 `src/literature_finder/`。程序化集成可使用 `parse_request`、`build_plan`、`run_search`、`write_excel` 和 `SafeDownloader`。环境变量说明见 `.env.example`；不得记录密钥。
+`LiteratureRecord` 统一维护来源 ID、规范化 DOI/标题、开放获取状态、最佳合法入口、PDF URL、相关性评分、下载状态、本地路径和 SHA256。元数据去重依次使用规范化 DOI、规范化标题、标题+作者+年份和严格模糊匹配；模糊匹配必须同时满足高相似度、作者一致和年份差不超过 1 年。
+
+相关性排序使用可解释的词项覆盖、摘要、年份、引用和开放获取信号；默认过滤低于 45 分的候选，不能为了达到数量目标而保留明显无关文献。
+
+合法全文解析优先顺序：原始来源明确 OA PDF、出版商 OA、OpenAlex OA location、Unpaywall `best_oa_location`、OSTI/HAL/CORE 等机构仓储、arXiv 或作者/机构 repository；只有合法 landing page 时保留入口，不把它当成可下载 PDF。
+
+## 两阶段下载流程
+
+检索始终先完成 Excel 和内部 JSON 记录，再等待用户明确选择。即使用户一开始说“把能下载的都下载下来”，也不得跳过确认。
+
+1. `search` 阶段：澄清 → QueryPlanner → 多源检索 → 元数据统一/去重/排序 → 合法全文解析 → Excel 导出。
+2. `download` 阶段：只处理 `download_permission_verified == True` 的记录；可按全部、序号/范围、文献类型、相关性阈值和年份筛选。
+
+下载器使用 `DownloadManager`；旧的 `SafeDownloader` 名称仍可用。真正发送 HTTP 请求前，必须先运行 `LocalLibraryChecker.refresh()` 扫描目标目录并加载 `literature_manifest.json`，再按以下顺序查重：
+
+1. 规范化 DOI 精确匹配；
+2. OpenAlex、OSTI、arXiv、HAL、CORE、NRC 等 Provider 唯一 ID 匹配；
+3. 规范化标题，并结合第一作者和年份；
+4. `>= 0.95` 的标题相似度、第一作者一致、年份差不超过 1 年；
+5. 生成目标文件名后检查现有有效 PDF。
+
+命中本地文献时必须设置 `download_status = skipped_existing`、`existing_local_copy = True` 和已有路径，并且不得调用 HTTP 下载函数。只有显式传入 `--force-redownload` 时才允许忽略本地存在检查；默认不覆盖、不删除、不生成 `(1)` 副本。
+
+下载写入 `.download_tmp/*.part`，然后执行 HTTP 状态、Content-Type、`%PDF-` 文件头、文件大小和 PDF parser 校验。通过后计算 SHA256；若与本地 PDF 相同，删除临时文件并设置 `skipped_duplicate`，不保留第二份。唯一文件才原子移动到 `pdf/` 并更新 manifest、JSON、Excel 和 `download_report.csv`。HTML、登录页、403、验证码页、Cloudflare 或其他错误响应不得保存为 PDF。
+
+## 运行入口
+
+```bash
+literature-search search "M5 cladding high burnup corrosion" --target 50 --output-dir literature_output
+literature-search download literature_output/literature_search_YYYYMMDD_HHMMSS.xlsx --selection "1,3,8-12"
+literature-search download literature_output/literature_search_YYYYMMDD_HHMMSS.xlsx --type "博士论文,期刊论文"
+literature-search download literature_output/literature_search_YYYYMMDD_HHMMSS.xlsx --threshold 80 --force-redownload
+```
+
+旧调用方式 `literature-search "主题"` 自动按 `search` 处理。程序化调用可使用 `parse_request`、`build_plan`、`run_search`、`write_excel`、`DownloadManager`、`LocalLibraryChecker` 和 `LiteratureManifest`。
+
+## 合法性要求
+
+只使用公开 API、公开学术页面、开放获取版本、机构仓储、官方报告和明确允许公开下载的资源。禁止 Sci-Hub、盗版数据库、付费墙/登录/机构认证/CAPTCHA/反爬绕过、泄露 Cookie/token、代理轮换或伪造认证。环境变量和 `.env` 中的密钥不得提交或写入日志。

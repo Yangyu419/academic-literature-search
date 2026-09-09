@@ -32,6 +32,10 @@ class SemanticScholarAdapter:
                 title=title, literature_type=_s2_type(item.get("publicationTypes")), publication_date=item.get("publicationDate") or (str(item["year"]) if item.get("year") else None), source=item.get("venue") or None,
                 doi=doi, doi_url=f"https://doi.org/{doi}" if doi else None, publisher_url=item.get("url"), open_access_url=oa.get("url"),
                 authors=[a.get("name", "") for a in item.get("authors", []) if a.get("name")], abstract=item.get("abstract"), citation_count=item.get("citationCount"), metadata_sources=[self.name], raw=item,
+                source_database=self.name, source_record_id=item.get("paperId"),
+                source_ids={"semantic_scholar": item.get("paperId")} if item.get("paperId") else {},
+                landing_page_url=item.get("url"), is_open_access=bool(oa.get("url")),
+                pdf_url=oa.get("url"), pdf_source="Semantic Scholar OA location",
             )
             output.append(record)
         return output
@@ -44,4 +48,3 @@ def _s2_type(values: list[str] | None) -> str:
     if "Conference" in values:
         return "会议论文"
     return "期刊论文" if values else "其他"
-

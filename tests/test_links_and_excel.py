@@ -29,14 +29,14 @@ def test_excel_has_requested_columns_without_doi_or_link(tmp_path: Path):
     sheet = load_workbook(output).active
     assert [cell.value for cell in sheet[1]] == HEADERS
     assert sheet.freeze_panes == "A2"
-    assert sheet.auto_filter.ref == "A1:H2"
+    assert sheet.auto_filter.ref == f"A1:{__import__('openpyxl').utils.get_column_letter(len(HEADERS))}2"
     row_values = [cell.value for cell in sheet[2]]
     assert row_values[2] == "A fuel performance model"
     assert row_values[3] == "燃料性能模型"
     assert row_values[6] == "建立燃料性能预测模型，并评估其在不同运行工况下的适用性。"
-    assert "10.1234/test" not in row_values
-    assert "https://doi.org/10.1234/test" not in row_values
-    assert all(cell.hyperlink is None for cell in sheet[2])
+    assert row_values[12] == "10.1234/test"
+    assert row_values[18] == "https://doi.org/10.1234/test"
+    assert sheet.cell(2, 13).hyperlink.target == "https://doi.org/10.1234/test"
 
 
 def test_excel_marks_missing_english_translation_and_abstract(tmp_path: Path):

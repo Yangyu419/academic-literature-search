@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "academic-literature-search"
-version = "0.1.0"
+version = "0.2.0"
 description = "A lawful, multi-source academic literature search Agent Skill with Excel export."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,6 +12,7 @@ license = { file = "LICENSE" }
 authors = [{ name = "Academic Literature Search contributors" }]
 dependencies = [
   "openpyxl>=3.1,<4",
+  "pypdf>=5,<7",
   "requests>=2.31,<3",
 ]
 
@@ -28,4 +29,3 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-

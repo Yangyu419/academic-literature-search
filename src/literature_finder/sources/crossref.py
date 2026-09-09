@@ -35,9 +35,14 @@ class CrossrefAdapter:
                 doi=doi,
                 doi_url=f"https://doi.org/{doi}" if doi else None,
                 publisher_url=item.get("URL"),
+                publisher=item.get("publisher"),
                 abstract=item.get("abstract"),
                 authors=[a.get("given", "") + (" " if a.get("given") and a.get("family") else "") + a.get("family", "") for a in item.get("author", []) if a.get("family") or a.get("given")],
                 metadata_sources=[self.name],
+                source_database=self.name,
+                source_record_id=doi,
+                source_ids={"crossref": doi} if doi else {},
+                landing_page_url=item.get("URL"),
                 raw=item,
             ))
         return records
@@ -45,4 +50,3 @@ class CrossrefAdapter:
 
 def _crossref_type(value: str | None) -> str:
     return {"journal-article": "期刊论文", "proceedings-article": "会议论文", "posted-content": "预印本", "report": "技术报告", "dissertation": "博士论文"}.get(value or "", "其他")
-

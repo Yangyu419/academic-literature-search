@@ -29,16 +29,24 @@ class OpenAlexAdapter:
             landing = location.get("landing_page_url")
             pdf = (location.get("pdf_url") or (location.get("source") or {}).get("pdf_url"))
             doi = normalize_doi(item.get("doi"))
+            open_access = item.get("open_access") or {}
             output.append(LiteratureRecord(
                 title=title, literature_type=_openalex_type(item.get("type")), publication_date=item.get("publication_date"), source=source,
                 doi=doi, doi_url=f"https://doi.org/{doi}" if doi else None, publisher_url=landing,
-                open_access_url=landing if (item.get("open_access") or {}).get("is_oa") else None,
+                open_access_url=landing if open_access.get("is_oa") else None,
                 repository_url=landing if (location.get("is_oa") and not source) else None,
                 authors=[(a.get("author") or {}).get("display_name", "") for a in item.get("authorships", []) if (a.get("author") or {}).get("display_name")],
-                abstract=_abstract(item.get("abstract_inverted_index")), citation_count=item.get("cited_by_count"), metadata_sources=[self.name], raw=item,
+                abstract=_abstract(item.get("abstract_inverted_index")), citation_count=item.get("cited_by_count"), metadata_sources=[self.name],
+                id=item.get("id"), source_database=self.name, source_record_id=item.get("id"),
+                source_ids={"openalex": item.get("id")} if item.get("id") else {},
+                landing_page_url=landing,
+                is_open_access=bool(open_access.get("is_oa")), oa_status="open" if open_access.get("is_oa") else "closed",
+                raw=item,
             ))
-            if pdf and output[-1].open_access_url is None:
+            if pdf:
                 output[-1].raw["openalex_pdf_url"] = pdf
+                output[-1].pdf_url = pdf
+                output[-1].pdf_source = "OpenAlex OA location"
         return output
 
 
@@ -54,4 +62,3 @@ def _abstract(index: dict[str, list[int]] | None) -> str | None:
         for position in positions:
             words.append((position, word))
     return " ".join(word for _, word in sorted(words))
-

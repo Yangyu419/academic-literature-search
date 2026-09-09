@@ -1,9 +1,8 @@
 interface:
   display_name: "Academic Literature Search"
-  short_description: "Search academic sources and export lawful access links"
+  short_description: "多源检索学术文献并导出合法获取入口"
   brand_color: "#2563EB"
-  default_prompt: "Use $academic-literature-search to find and organize high-relevance academic literature on my research topic."
+  default_prompt: "使用 $academic-literature-search 检索并整理我的研究方向相关学术文献。"
 
 policy:
   allow_implicit_invocation: true
-

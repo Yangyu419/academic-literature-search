@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.pytest-temp/
 .venv/
 venv/
 .env
@@ -12,3 +13,8 @@ literature_search_*/
 
 # Locally generated, task-specific literature exports and review artifacts.
 outputs/
+literature_output/
+.cache/
+.download_tmp/
+download_report.csv
+literature_manifest.json

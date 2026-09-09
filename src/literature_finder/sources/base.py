@@ -22,9 +22,41 @@ LOGGER = logging.getLogger(__name__)
 class SourceAdapter(ABC):
     name: str
 
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def skip_reason(self) -> str | None:
+        return None
+
     @abstractmethod
     def search(self, query: str, *, limit: int = 20) -> list[LiteratureRecord]:
         """Search a single query and return source-normalized records."""
+
+
+class LinkOnlyAdapter(SourceAdapter):
+    """A provider that exposes a lawful hand-off URL but no stable API client."""
+
+    def __init__(self, *, topic_url: str) -> None:
+        self.topic_url = topic_url
+
+    @property
+    def available(self) -> bool:
+        return False
+
+    @property
+    def skip_reason(self) -> str:
+        return "link-only provider; no configured structured API"
+
+    def search(self, query: str, *, limit: int = 20) -> list[LiteratureRecord]:
+        return []
+
+    def search_url(self, query: str) -> str:
+        import urllib.parse
+
+        separator = "&" if "?" in self.topic_url else "?"
+        return f"{self.topic_url}{separator}q={urllib.parse.quote_plus(query)}"
 
 
 class HttpClient:
@@ -69,4 +101,3 @@ def first_nonempty(*values: Any) -> Any:
 def env(name: str) -> str | None:
     value = os.getenv(name, "").strip()
     return value or None
-
