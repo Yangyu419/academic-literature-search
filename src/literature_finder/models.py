@@ -55,6 +55,10 @@ class LiteratureRecord:
     citation_count: int | None = None
     external_ids: dict[str, str] = field(default_factory=dict)
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
+    # Presentation fields used by the Excel export.  DOI/access fields above
+    # remain internal so the download workflow can still resolve legal files.
+    title_zh: str | None = None
+    research_content: str | None = None
 
 
 @dataclass(slots=True)
@@ -78,4 +82,3 @@ class DownloadResult:
     filename: str = ""
     source_url: str = ""
     failure_reason: str = ""
-

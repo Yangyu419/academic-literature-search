@@ -61,7 +61,59 @@ const rows = [
   ["期刊论文", "A surrogate model for topology optimisation of elastic structures via parametric autoencoders", "2026-01-01", "Computer Methods in Applied Mechanics and Engineering", "10.1016/j.cma.2025.118503", "https://upcommons.upc.edu/server/api/core/bitstreams/6f5228a7-8729-4bc8-9121-c4d6b4a26ee7/content", "参数自编码器预测准最优拓扑；平均优化迭代减少 53%；UPC 公开 PDF；已保存"],
 ];
 
-const headers = ["序号", "文献类型", "文献名", "文献发表日期", "期刊/来源", "DOI号", "链接", "备注"];
+const titleTranslations = [
+  "分叉结构断裂响应的神经网络代理模型",
+  "降阶机器学习有限元方法：概念、实现与未来应用",
+  "通过概率机器学习在线构建并发多尺度力学分析的代理本构模型",
+  "向人工智能教授固体力学：异质材料快速求解器",
+  "用于预测双相微结构历史相关变形的机器学习代理建模框架",
+  "基于长短期记忆网络和适当正交分解的弹塑性问题代理建模",
+  "结构拓扑优化的算法一致深度学习框架",
+  "软组织显式分布式结构分析中的数据驱动免同步算法",
+  "Smart Parts：非线性机械部件的数据驱动降阶建模",
+  "一维有限元的智能刚度计算",
+  "使用循环神经网络对可变网格拓扑参数化有限元仿真进行代理建模",
+  "用于生物力学与软组织有限元分析的混合机器学习多保真代理建模",
+  "混合形式物理信息神经网络作为异质域工程问题求解器的潜力",
+  "有限元与深度神经算子耦合实现力学问题快速多尺度建模",
+  "多保真图神经网络学习有限元收敛",
+  "层级起皱生成复杂微结构的机器学习逆向设计",
+  "机器学习加速随机非线性结构瞬态分析",
+  "基于有限元模型与代理模型的贝叶斯模型更新：闸门结构案例",
+  "壳结构的物理信息神经网络",
+  "有限元增强神经网络及其正问题与逆问题应用",
+  "应用于代表性体积单元完整弹塑性仿真的数据驱动降阶代理模型",
+  "基于映射物理数据的高级卷积神经网络拓扑优化",
+  "利用深度学习代理模型加速结构设计分析",
+  "深度学习框架下的多尺度力学建模加速",
+  "利用可由物理实验获取的数据训练有限元机器学习材料模型的策略",
+  "接触力学神经网络有限元方法",
+  "图神经网络增强的有限元建模",
+  "基于非侵入式降阶建模的连续体肌肉骨骼系统低维数据代理模型",
+  "线弹性物理信息代理模型",
+  "冰盖建模的混合深度神经算子/有限元方法",
+  "有限元空间算子学习的网格感知神经网络",
+  "基于缩减边界有限元法与深度学习的大型结构多裂纹识别数据驱动算法",
+  "弹性与弹塑性固体的有限元集成神经网络框架",
+  "有限元集成网络（FEMIN）介绍",
+  "神经有限元与神经算子方法在固体力学中的比较",
+  "用于加速多尺度仿真的基于微结构图神经网络",
+  "预测复合材料结构设计特征附近三维应力的机器学习多保真建模方法",
+  "变刚度复合材料高效力学分析的机器学习侵入式耦合框架",
+  "基于深度学习的复合层合板损伤预测高效代理模型",
+  "结构健康监测中空间场重构与不确定性量化的深度学习代理模型",
+  "带示例的平面弹性问题物理信息神经网络集成",
+  "用于边值问题的神经网络增强可微有限元方法",
+  "将微结构弹性性质映射到力学变形的有限算子学习技术",
+  "迁移学习增强的有限元集成神经网络",
+  "用于快速结构响应预测的有限元约束神经网络代理模型及可靠性分析",
+  "用于精确高效结构响应仿真的数据/物理耦合框架",
+  "复合材料多尺度建模的优化物理递归神经网络",
+  "利用深度学习快速分析混凝土薄壳",
+  "基于微尺度代理建模与微分神经网络的高效多尺度有限元实现",
+  "基于参数自编码器的弹性结构拓扑优化代理模型",
+];
+const headers = ["序号", "文献类型", "文献名", "中文名", "文献发表日期", "期刊/来源", "研究内容", "备注"];
 const downloadedSequences = new Set([2, 3, 4, 8, 12, 15, 19, 20, 21, 22, 28, 31, 35, 44, 50]);
 const failedDownloads = new Map([
   [11, "出版社 PDF 端点返回 403，详情页可人工下载"],
@@ -78,12 +130,16 @@ const workbook = Workbook.create();
 const sheet = workbook.worksheets.add("Literature");
 sheet.showGridLines = false;
 sheet.getRange("A1:H1").values = [headers];
-sheet.getRange(`A2:H${rows.length + 1}`).values = rows.map((r, i) => [i + 1, r[0], r[1], r[2], r[3], r[4], r[5], notesWithDownloadStatus[i]]);
-// Keep the URL visible as plain text and attach a hyperlink when supported by the export surface.
-for (let i = 0; i < rows.length; i++) {
-  const cell = sheet.getCell(i + 1, 6);
-  cell.hyperlink = rows[i][5];
-}
+sheet.getRange(`A2:H${rows.length + 1}`).values = rows.map((r, i) => [
+  i + 1,
+  r[0],
+  r[1],
+  titleTranslations[i] || "未翻译，需人工补充",
+  r[2],
+  r[3],
+  r[6].split("；")[0],
+  notesWithDownloadStatus[i],
+]);
 
 sheet.getRange(`A1:H${rows.length + 1}`).format.font = { name: "Arial", size: 10, color: "#1F2937" };
 sheet.getRange("A1:H1").format = {
@@ -94,18 +150,16 @@ sheet.getRange("A1:H1").format = {
 };
 sheet.getRange(`A2:H${rows.length + 1}`).format.verticalAlignment = "top";
 sheet.getRange(`B2:H${rows.length + 1}`).format.wrapText = true;
-sheet.getRange(`G2:G${rows.length + 1}`).format.font = { name: "Arial", size: 10, color: "#0563C1", underline: "single" };
 sheet.getRange(`A2:A${rows.length + 1}`).format.horizontalAlignment = "center";
 sheet.getRange(`A1:H${rows.length + 1}`).format.borders = { preset: "all", style: "thin", color: "#D9E2F3" };
-sheet.getRange(`D2:D${rows.length + 1}`).format.numberFormat = "@";
-sheet.getRange(`F2:F${rows.length + 1}`).format.numberFormat = "@";
+sheet.getRange(`E2:E${rows.length + 1}`).format.numberFormat = "@";
 sheet.getRange("A1:A51").format.columnWidth = 7;
 sheet.getRange("B1:B51").format.columnWidth = 13;
 sheet.getRange("C1:C51").format.columnWidth = 52;
-sheet.getRange("D1:D51").format.columnWidth = 15;
-sheet.getRange("E1:E51").format.columnWidth = 28;
-sheet.getRange("F1:F51").format.columnWidth = 30;
-sheet.getRange("G1:G51").format.columnWidth = 54;
+sheet.getRange("D1:D51").format.columnWidth = 36;
+sheet.getRange("E1:E51").format.columnWidth = 15;
+sheet.getRange("F1:F51").format.columnWidth = 28;
+sheet.getRange("G1:G51").format.columnWidth = 60;
 sheet.getRange("H1:H51").format.columnWidth = 55;
 sheet.getRange("A1:H1").format.rowHeight = 28;
 sheet.getRange("A2:H51").format.rowHeight = 60;
