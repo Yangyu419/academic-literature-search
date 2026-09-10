@@ -1,18 +1,20 @@
 # Academic Literature Search
 
-一个可作为 Agent Skill 使用、也可独立安装的 Python 学术文献检索工具。它在现有“研究主题澄清 → 多源检索 → Excel 汇总 → 用户确认后下载”流程上，增加了专业 Provider、合法全文解析、本地文献查重、manifest、临时文件、PDF 校验、SHA256 二次去重和结构化归档。
+一个可作为 Agent Skill 使用、也可独立安装的 Python 学术文献检索工具。它在现有“研究主题澄清 → 多源检索 → Excel 汇总 → 用户确认后下载”流程上，增加了专业 Provider、公开免费全文解析、本地文献查重、manifest、临时文件、PDF 校验、SHA256 二次去重和结构化归档。
 
 ## 能做什么
 
 - 对宽泛主题先提问，对明确主题直接检索。
 - 通过 QueryPlanner 做有限的中英文关键词、同义词和缩写扩展。
-- 聚合 Crossref、OpenAlex、Semantic Scholar、arXiv，以及按主题启用的 OSTI、HAL、CORE。
-- 对核工程主题提供 OSTI、NRC ADAMS、IAEA INIS、HAL-CEA 入口；NRC ADAMS 和 INIS 在没有稳定公开 API 时采用 link-only，不虚构接口。
+- 聚合 Crossref、OpenAlex、Semantic Scholar、arXiv、Europe PMC、DOAJ、Zenodo 和 HAL。
+- 核工程主题自动增加 OSTI、NRC ADAMS、IAEA INIS、OECD-NEA 和 INL Advanced Fuels Campaign；NRC ADAMS、INIS 以及页面型来源遵守其公开访问规则，解析失败保留官方 landing page。
+- 学位论文主题自动增加 OATD、theses.fr 和 CORE；OATD 接口不可用时不伪造记录，保留 OATD 官方检索入口供人工继续。
 - 使用 DOI、标题、作者、年份、来源 ID 和严格模糊标题规则去重。
 - 选择最佳合法获取入口；landing page 与实际 PDF 下载 URL 分开保存。
-- 只有用户明确执行第二阶段下载时才下载，并且只下载已验证的合法公开 PDF。
+- 只有用户明确执行第二阶段下载时才下载；默认公开免费优先，尽可能处理来源提供的可访问全文，不因固定域名白名单或缺失 OA 标记而提前屏蔽候选。
 - 下载前扫描目标文件夹，优先 DOI 精确查重；手动放入的 PDF 也会尝试读取 DOI、标题、作者和年份。
 - 下载后执行 PDF 文件头、Content-Type、大小、parser 和 SHA256 校验。
+- DOI 记录在下载阶段还会通过 Unpaywall/OpenAlex 做一次 OA 救援；每条记录按公开全文候选链自动回退，直到成功或全部失败。
 - 输出 Excel、内部记录 JSON、`literature_manifest.json`、`download_report.csv` 和 `pdf/` 归档目录。
 
 ## 安装
@@ -61,7 +63,7 @@ literature-search "核燃料"
 
 ### 第二阶段：用户确认后下载
 
-下载全部已确认合法公开的全文：
+下载全部已发现的公开免费全文候选：
 
 ```bash
 literature-search download literature_output/literature_search_YYYYMMDD_HHMMSS.xlsx
@@ -78,6 +80,12 @@ literature-search download literature_output/literature_search_YYYYMMDD_HHMMSS.x
 ```bash
 literature-search download results.xlsx --type "博士论文,期刊论文"
 literature-search download results.xlsx --threshold 80 --start-year 2020 --end-year 2026
+```
+
+只重试上次报告中的失败或无效 PDF，不重新处理已经成功或已跳过的记录：
+
+```bash
+literature-search download results.xlsx --resume
 ```
 
 强制重新下载不是默认行为，只有显式传入以下参数才会忽略本地存在检查：
@@ -146,6 +154,7 @@ CORE 未配置 `CORE_API_KEY` 时自动跳过，不影响其他来源。Unpaywal
 
 - [Crossref REST API](https://api.crossref.org/)
 - [OpenAlex API](https://help.openalex.org/)
+- [Semantic Scholar API](https://www.semanticscholar.org/product/api)
 - [Unpaywall API 与数据格式](https://unpaywall.org/data-format)
 - [CORE API](https://core.ac.uk/services/api)
 - [OSTI.GOV API](https://www.osti.gov/api/v1/docs)
@@ -153,10 +162,20 @@ CORE 未配置 `CORE_API_KEY` 时自动跳过，不影响其他来源。Unpaywal
 - [NRC ADAMS Public Search API](https://adams-api-developer.nrc.gov/)
 - [IAEA INIS Repository Search](https://inis.iaea.org/search/)
 - [arXiv API Access](https://info.arxiv.org/help/api/index.html)
+- [PMC（通过 Europe PMC REST 获取公开全文链接）](https://pmc.ncbi.nlm.nih.gov/)
+- [Europe PMC REST API](https://www.ebi.ac.uk/europepmc/webservices/rest/)
+- [DOAJ API](https://doaj.org/api/)
+- [Zenodo REST API](https://developers.zenodo.org/)
+- [OATD](https://www.oatd.org/)
+- [theses.fr / ABES API](https://abes.fr/api-et-web-services/)
+- [OECD-NEA Publications](https://oecd-nea.org/tools/publication)
+- [INL Advanced Fuels Campaign](https://nuclearfuel.inl.gov/our-work/)
 
-## 合法性和版权边界
+## 公开免费获取策略与版权边界
 
-本项目只从公开 API、出版社 OA 页面、机构仓储、作者合法公开版本、官方报告、公开学位论文和 arXiv 等合法来源检索和获取资源。
+本项目会从公开 API、普通公开学术页面、出版社公开全文页面、机构仓储、作者合法公开版本、官方报告、公开学位论文和 arXiv 等来源尽可能寻找可访问全文。不会因为链接域名不在固定白名单，或上游没有正确标记 OA，就提前禁用来源提供的公开 PDF 候选；下载器会用正常 HTTP 响应和 PDF 校验做最后判断。
+
+“可访问”不等于可以绕过权限。以下行为始终禁止：
 
 本项目不会：
 
@@ -165,6 +184,8 @@ CORE 未配置 `CORE_API_KEY` 时自动跳过，不影响其他来源。Unpaywal
 - 绕过 robots、Cloudflare、限流或其他反爬措施；
 - 构造未经来源确认的 DOI/PDF URL；
 - 将 HTML 错误页、登录页或 Access denied 页面保存为 PDF。
+
+对于普通公开页面，如果实际响应是登录页、付费墙、验证码、Cloudflare/反爬页面或 HTML 错误页，程序会停止该条下载并保留 DOI、出版商或仓储详情页。不会自动登录、导入浏览器 Cookie、绕过限流，也不会使用 Sci-Hub、LibGen、盗版数据库或影子文献库。公开可访问的资源仍可能有再分发限制，使用者应遵守来源条款和版权许可。
 
 公开可访问不等于可以任意转载或再分发。使用者仍须遵守来源服务条款、许可证和适用法律。
 
@@ -189,7 +210,16 @@ src/literature_finder/
 │   ├── manager.py             # 下载前查重、临时文件、二次 hash 去重
 │   └── validator.py           # PDF 校验和 SHA256
 ├── downloader.py             # SafeDownloader 兼容入口
-└── sources/                  # Crossref/OpenAlex/CORE/OSTI/HAL 等适配器
+├── oa_rescue.py              # DOI 后 Unpaywall/OpenAlex OA 救援
+└── sources/                  # 公开 API、专业库和官方页面适配器
+    ├── europe_pmc.py         # Europe PMC
+    ├── doaj.py               # DOAJ
+    ├── zenodo.py             # Zenodo
+    ├── oatd.py               # OATD
+    ├── theses_fr.py          # theses.fr / ABES
+    ├── oecd_nea.py           # OECD-NEA 页面索引
+    ├── nuclearfuel_inl.py    # INL Advanced Fuels Campaign 页面
+    └── web_pages.py          # robots.txt 感知的页面访问
 ```
 
 ## 测试与已知限制
@@ -200,9 +230,9 @@ src/literature_finder/
 python -m pytest -q
 ```
 
-测试覆盖澄清、查询扩展、来源失败隔离、DOI 元数据去重、本地 DOI/来源 ID/标题/文件名查重、手动 PDF 识别、manifest、下载前不发 HTTP、强制下载覆盖开关、PDF 校验和 SHA256 二次去重。
+测试覆盖澄清、查询扩展、来源失败隔离、DOI 元数据去重、本地 DOI/来源 ID/标题/文件名查重、手动 PDF 识别、manifest、下载前不发 HTTP、强制下载覆盖开关、PDF 校验、SHA256 二次去重、新增适配器 mock、OA 救援、多候选回退和 `--resume`。
 
-已知限制：NRC ADAMS 和 INIS 的自动化结构化检索需要依赖官方 API 订阅或接口变化，目前以 link-only 入口为主；中国商业数据库未作为核心爬虫接入；相关性排序仍是可解释的词法评分，并默认过滤低于 45 分的候选；上游 API 的限流、字段变化和 OA 标注可能导致空字段或失败记录；下载器不会把出版社登录页视为可下载全文。
+已知限制：NRC ADAMS 和 INIS 的自动化结构化检索需要依赖官方 API 订阅或接口变化，目前以 link-only 入口为主；OATD 的公开接口部署可能变化，接口失败时仅保留官方检索入口；中国商业数据库未作为核心爬虫接入；相关性排序仍是可解释的词法评分，并默认过滤低于 45 分的候选；上游 API 的限流、字段变化和 OA 标注可能导致空字段或失败记录；普通公开 PDF 候选会被尝试，但下载器不会把出版社登录页、付费墙、验证码页或其他 HTML 页面视为可下载全文。
 
 ## Roadmap
 

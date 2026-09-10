@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import logging
 import re
 import sys
@@ -47,6 +48,7 @@ def _parser() -> argparse.ArgumentParser:
     download.add_argument("--start-year", type=int, default=None)
     download.add_argument("--end-year", type=int, default=None)
     download.add_argument("--force-redownload", action="store_true", help="显式忽略本地存在检查并重新下载")
+    download.add_argument("--resume", action="store_true", help="只重试 download_report.csv 中上次失败或无效的记录")
     download.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     return parser
 
@@ -98,6 +100,10 @@ def _download(args: argparse.Namespace) -> int:
     file_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
     logging.getLogger().addHandler(file_handler)
     selected = parse_selection(args.selection, len(records)) if args.selection else None
+    if args.resume:
+        failed = _failed_sequences(workbook.parent / "download_report.csv")
+        selected = failed if selected is None else selected & failed
+        print(f"断点续传：仅重试 {len(selected)} 篇上次失败或 PDF 无效的记录")
     type_filter = {item.strip() for item in re.split(r"[,，]", args.type_filter) if item.strip()} if args.type_filter else None
     results = DownloadManager().download(
         records, workbook.parent, selected=selected, type_filter=type_filter,
@@ -124,6 +130,22 @@ def _find_records(workbook: Path) -> Path | None:
         workbook.parent / "records.json",
     ]
     return next((path for path in candidates if path.exists()), None)
+
+
+def _failed_sequences(report: Path) -> set[int]:
+    """Read only retryable rows; successful rows are never selected by resume."""
+    if not report.exists():
+        return set()
+    retryable = {"failed", "invalid_pdf", "corrupt"}
+    try:
+        with report.open("r", newline="", encoding="utf-8-sig") as handle:
+            return {
+                int(row["序号"])
+                for row in csv.DictReader(handle)
+                if row.get("状态") in retryable and str(row.get("序号", "")).isdigit()
+            }
+    except (OSError, ValueError, KeyError, TypeError):
+        return set()
 
 
 if __name__ == "__main__":

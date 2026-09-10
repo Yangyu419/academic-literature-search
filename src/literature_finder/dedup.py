@@ -16,7 +16,11 @@ def deduplicate(records: list[LiteratureRecord]) -> list[LiteratureRecord]:
         normalize_record(record)
         doi_key = record.doi_normalized
         title_key = record.title_normalized or normalize_title(record.title)
-        existing = by_doi.get(doi_key) if doi_key else by_title.get(title_key)
+        existing = by_doi.get(doi_key) if doi_key else None
+        if existing is None and title_key:
+            title_match = by_title.get(title_key)
+            if title_match is not None and _compatible(record, title_match):
+                existing = title_match
         if existing is None:
             for candidate in result:
                 candidate_title = candidate.title_normalized or normalize_title(candidate.title)
@@ -40,10 +44,17 @@ def deduplicate(records: list[LiteratureRecord]) -> list[LiteratureRecord]:
 
 
 def _compatible(left: LiteratureRecord, right: LiteratureRecord) -> bool:
-    left_author = (left.authors[0] if left.authors else "").casefold().split()[-1]
-    right_author = (right.authors[0] if right.authors else "").casefold().split()[-1]
+    left_author = _author_key(left)
+    right_author = _author_key(right)
     if left_author and right_author and left_author != right_author:
         return False
     if left.year and right.year and abs(left.year - right.year) > 1:
         return False
     return True
+
+
+def _author_key(record: LiteratureRecord) -> str:
+    """Return a comparable first-author token, tolerating blank provider data."""
+    value = next((author.strip() for author in record.authors if author and author.strip()), "")
+    parts = value.casefold().replace(",", " ").split()
+    return parts[-1] if parts else ""

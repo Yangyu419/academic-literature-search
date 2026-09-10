@@ -14,6 +14,21 @@ def test_arxiv_verified_download_is_preserved():
     assert record.download_permission_verified is True
 
 
+def test_public_pdf_candidate_is_not_filtered_by_missing_oa_flag():
+    record = LiteratureRecord(
+        "Public repository paper",
+        pdf_url="https://repository.example/public-paper.pdf",
+        pdf_source="Public repository",
+        is_open_access=False,
+    )
+
+    BestLegalAccessResolver().resolve(record)
+
+    assert record.download_url == "https://repository.example/public-paper.pdf"
+    assert record.download_permission_verified is True
+    assert record.download_file_type == "pdf"
+
+
 def test_excel_has_requested_columns_without_doi_or_link(tmp_path: Path):
     record = LiteratureRecord(
         "A fuel performance model",
@@ -26,22 +41,30 @@ def test_excel_has_requested_columns_without_doi_or_link(tmp_path: Path):
         research_content="建立燃料性能预测模型，并评估其在不同运行工况下的适用性。",
     )
     output = write_excel([record], tmp_path / "out.xlsx")
-    sheet = load_workbook(output).active
-    assert [cell.value for cell in sheet[1]] == HEADERS
-    assert sheet.freeze_panes == "A2"
-    assert sheet.auto_filter.ref == f"A1:{__import__('openpyxl').utils.get_column_letter(len(HEADERS))}2"
-    row_values = [cell.value for cell in sheet[2]]
-    assert row_values[2] == "A fuel performance model"
-    assert row_values[3] == "燃料性能模型"
-    assert row_values[6] == "建立燃料性能预测模型，并评估其在不同运行工况下的适用性。"
-    assert row_values[12] == "10.1234/test"
-    assert row_values[18] == "https://doi.org/10.1234/test"
-    assert sheet.cell(2, 13).hyperlink.target == "https://doi.org/10.1234/test"
+    workbook = load_workbook(output)
+    try:
+        sheet = workbook.active
+        assert [cell.value for cell in sheet[1]] == HEADERS
+        assert sheet.freeze_panes == "A2"
+        assert sheet.auto_filter.ref == f"A1:{__import__('openpyxl').utils.get_column_letter(len(HEADERS))}2"
+        row_values = [cell.value for cell in sheet[2]]
+        assert row_values[2] == "A fuel performance model"
+        assert row_values[3] == "燃料性能模型"
+        assert row_values[6] == "建立燃料性能预测模型，并评估其在不同运行工况下的适用性。"
+        assert row_values[12] == "10.1234/test"
+        assert row_values[18] == "https://doi.org/10.1234/test"
+        assert sheet.cell(2, 13).hyperlink.target == "https://doi.org/10.1234/test"
+    finally:
+        workbook.close()
 
 
 def test_excel_marks_missing_english_translation_and_abstract(tmp_path: Path):
     record = LiteratureRecord("An English title")
     output = write_excel([record], tmp_path / "out.xlsx")
-    row = list(load_workbook(output).active[2])
-    assert row[3].value == "未翻译，需人工补充"
-    assert row[6].value == "未获取摘要，需人工补充"
+    workbook = load_workbook(output)
+    try:
+        row = list(workbook.active[2])
+        assert row[3].value == "未翻译，需人工补充"
+        assert row[6].value == "未获取摘要，需人工补充"
+    finally:
+        workbook.close()

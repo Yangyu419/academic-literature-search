@@ -13,16 +13,18 @@ import requests
 
 from ..library import LocalLibraryChecker
 from ..models import DownloadResult, LiteratureRecord
+from ..oa_rescue import OpenAccessRescue
 from ..pdf_validator import sha256_file, validate_pdf
 from ..sources.base import HttpClient
 
 
 class DownloadManager:
-    """Download only explicitly verified OA PDFs, defaulting to skip existing files."""
+    """Download public PDF candidates with local preflight and fallback."""
 
-    def __init__(self, *, timeout: float = 30.0, retries: int = 2, min_interval: float = 1.0, client: HttpClient | None = None, fuzzy_threshold: float = 0.95) -> None:
+    def __init__(self, *, timeout: float = 30.0, retries: int = 2, min_interval: float = 1.0, client: HttpClient | None = None, fuzzy_threshold: float = 0.95, oa_rescue: OpenAccessRescue | None = None) -> None:
         self.client = client or HttpClient(timeout=timeout, retries=retries, min_interval=min_interval)
         self.fuzzy_threshold = fuzzy_threshold
+        self.oa_rescue = oa_rescue
 
     def download(
         self,
@@ -71,66 +73,91 @@ class DownloadManager:
                     results.append(DownloadResult(sequence, record.title, "failed", filename, record.download_url or "", existing.reason))
                     continue
 
-            if not (record.download_permission_verified and record.download_url):
+            if not (record.download_permission_verified and record.download_url) and record.doi:
+                (self.oa_rescue or OpenAccessRescue()).rescue(record)
+
+            candidates = _download_candidates(record)
+            if not candidates:
                 record.download_status = "unavailable"
-                record.download_error = "no verified legal PDF URL"
+                record.download_error = "no public PDF candidate"
                 results.append(DownloadResult(sequence, record.title, "unavailable", filename, record.best_legal_access_url or record.best_access_url or "", record.download_error))
                 continue
 
-            temp = temporary_dir / f"{uuid.uuid4().hex}.part"
             record.download_status = "downloading"
-            try:
-                response = self.client.request("GET", record.download_url, stream=True)
-                content_type = (response.headers.get("Content-Type") or "").casefold()
-                with temp.open("wb") as handle:
-                    for chunk in response.iter_content(1024 * 64):
-                        if chunk:
-                            handle.write(chunk)
-                response.close()
-                if "text/html" in content_type:
-                    raise DownloadError("response Content-Type is HTML")
-                validation = validate_pdf(temp)
-                if not validation.valid:
-                    record.download_status = "invalid_pdf"
-                    record.download_error = validation.reason
-                    results.append(DownloadResult(sequence, record.title, "invalid_pdf", filename, record.download_url, validation.reason))
-                    continue
-                digest = sha256_file(temp)
-                duplicate = checker.index.find_by_hash(digest)
-                if duplicate:
-                    record.download_status = "skipped_duplicate"
-                    record.existing_local_copy = True
-                    record.existing_local_path = str(duplicate.path.resolve())
-                    record.duplicate_reason = "SHA256 matches an existing local PDF"
+            errors: list[str] = []
+            for candidate in candidates:
+                url = str(candidate["url"])
+                record.download_url = url
+                temp = temporary_dir / f"{uuid.uuid4().hex}.part"
+                try:
+                    response = self.client.request("GET", url, stream=True)
+                    content_type = (response.headers.get("Content-Type") or "").casefold()
+                    with temp.open("wb") as handle:
+                        for chunk in response.iter_content(1024 * 64):
+                            if chunk:
+                                handle.write(chunk)
+                    response.close()
+                    if "text/html" in content_type:
+                        raise DownloadError("response Content-Type is HTML")
+                    validation = validate_pdf(temp)
+                    if not validation.valid:
+                        raise DownloadError(f"invalid PDF: {validation.reason}")
+                    digest = sha256_file(temp)
+                    duplicate = checker.index.find_by_hash(digest)
+                    if duplicate:
+                        record.download_status = "skipped_duplicate"
+                        record.existing_local_copy = True
+                        record.existing_local_path = str(duplicate.path.resolve())
+                        record.duplicate_reason = "SHA256 matches an existing local PDF"
+                        record.file_hash_sha256 = digest
+                        checker.manifest.update_record(record, duplicate.path, digest)
+                        checker.manifest.save()
+                        results.append(DownloadResult(sequence, record.title, "skipped_duplicate", filename, url, record.duplicate_reason))
+                        break
+                    if target.exists():
+                        raise DownloadError("target path appeared after preflight; refusing to overwrite")
+                    os.replace(temp, target)
+                    record.download_status = "downloaded"
+                    record.download_path = str(target.resolve())
                     record.file_hash_sha256 = digest
-                    checker.manifest.update_record(record, duplicate.path, digest)
+                    entry = checker.index._entry(target)
+                    checker.index.add(entry)
+                    checker.manifest.update_record(record, target, digest)
                     checker.manifest.save()
-                    results.append(DownloadResult(sequence, record.title, "skipped_duplicate", filename, record.download_url, record.duplicate_reason))
-                    continue
-                if target.exists():
-                    raise DownloadError("target path appeared after preflight; refusing to overwrite")
-                os.replace(temp, target)
-                record.download_status = "downloaded"
-                record.download_path = str(target.resolve())
-                record.file_hash_sha256 = digest
-                entry = checker.index._entry(target)
-                checker.index.add(entry)
-                checker.manifest.update_record(record, target, digest)
-                checker.manifest.save()
-                results.append(DownloadResult(sequence, record.title, "downloaded", filename, record.download_url))
-            except (requests.RequestException, RuntimeError, OSError, DownloadError) as exc:
+                    results.append(DownloadResult(sequence, record.title, "downloaded", filename, url))
+                    break
+                except (requests.RequestException, RuntimeError, OSError, DownloadError) as exc:
+                    errors.append(f"{url}: {exc}")
+                finally:
+                    temp.unlink(missing_ok=True)
+                    time.sleep(self.client.min_interval)
+            else:
                 record.download_status = "failed"
-                record.download_error = str(exc)
-                results.append(DownloadResult(sequence, record.title, "failed", filename, record.download_url, str(exc)))
-            finally:
-                temp.unlink(missing_ok=True)
-                time.sleep(self.client.min_interval)
+                record.download_error = " ; ".join(errors)
+                results.append(DownloadResult(sequence, record.title, "failed", filename, record.download_url or "", record.download_error))
         write_report(results, root / "download_report.csv")
         return results
 
 
 class DownloadError(RuntimeError):
     pass
+
+
+def _download_candidates(record: LiteratureRecord) -> list[dict[str, object]]:
+    raw = record.raw.get("download_candidates")
+    candidates: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict) or not item.get("url"):
+            continue
+        url = str(item["url"])
+        if url not in seen:
+            candidates.append(item)
+            seen.add(url)
+    if record.download_permission_verified and record.download_url and record.download_url not in seen:
+        candidates.append({"url": record.download_url, "priority": 50, "source": record.download_source or "source-provided candidate", "file_type": record.download_file_type or "pdf"})
+    candidates.sort(key=lambda item: int(item.get("priority", 50)))
+    return candidates
 
 
 def filename_for(sequence: int, record: LiteratureRecord) -> str:

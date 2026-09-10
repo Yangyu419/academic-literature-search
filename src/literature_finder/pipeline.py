@@ -11,7 +11,7 @@ from .link_resolver import BestLegalAccessResolver
 from .models import LiteratureRecord, ResearchRequest, SearchPlan, SearchResult
 from .query_planner import build_plan
 from .search import SearchEngine
-from .sources import ArxivAdapter, CrossrefAdapter, OpenAlexAdapter, SemanticScholarAdapter
+from .sources import ArxivAdapter, CrossrefAdapter, DoajAdapter, EuropePmcAdapter, HalAdapter, OpenAlexAdapter, SemanticScholarAdapter, ZenodoAdapter
 from .sources.base import HttpClient
 from .sources.unpaywall import UnpaywallAdapter
 
@@ -19,7 +19,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 def default_adapters(topic: str | None = None) -> list[object]:
-    base = [CrossrefAdapter(), OpenAlexAdapter(), SemanticScholarAdapter(), ArxivAdapter()]
+    base = [CrossrefAdapter(), OpenAlexAdapter(), SemanticScholarAdapter(), ArxivAdapter(), EuropePmcAdapter(), DoajAdapter(), ZenodoAdapter(), HalAdapter()]
     return base + specialist_adapters(topic or "")
 
 

@@ -79,6 +79,15 @@ def merge_record(preferred: LiteratureRecord, other: LiteratureRecord) -> Litera
     preferred.authors = preferred.authors or other.authors
     preferred.metadata_sources = list(dict.fromkeys(preferred.metadata_sources + other.metadata_sources))
     preferred.raw.update({k: v for k, v in other.raw.items() if k not in preferred.raw})
+    other_candidates = other.raw.get("download_candidates")
+    if isinstance(other_candidates, list):
+        current_candidates = preferred.raw.setdefault("download_candidates", [])
+        if isinstance(current_candidates, list):
+            seen_urls = {str(item.get("url")) for item in current_candidates if isinstance(item, dict) and item.get("url")}
+            current_candidates.extend(
+                item for item in other_candidates
+                if isinstance(item, dict) and item.get("url") and str(item.get("url")) not in seen_urls
+            )
     preferred.citation_count = max(filter(None, (preferred.citation_count, other.citation_count)), default=None)
     if other.download_permission_verified and not preferred.download_permission_verified:
         for field in ("is_downloadable", "download_url", "download_source", "download_file_type", "download_permission_verified"):

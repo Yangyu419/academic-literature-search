@@ -1,4 +1,10 @@
-"""Select stable lawful access pages and verify only explicit OA candidates."""
+"""Select stable lawful access pages and public/free download candidates.
+
+The resolver deliberately does not maintain a hard-coded domain allow-list. A
+source-provided public PDF URL may be useful even when its OA flag is missing
+or stale. The downloader still performs the final HTTP, content-type, PDF and
+access-response checks before saving anything.
+"""
 
 from __future__ import annotations
 
@@ -25,14 +31,31 @@ class BestLegalAccessResolver:
 
     def resolve(self, record: LiteratureRecord) -> LiteratureRecord:
         candidates = self._candidates(record)
+        download_candidates = sorted(
+            [candidate for candidate in candidates if candidate.downloadable],
+            key=lambda item: item.priority,
+        )
+        record.raw["download_candidates"] = [
+            {
+                "url": item.url,
+                "priority": item.priority,
+                "label": item.label,
+                "source": item.source,
+                "file_type": item.file_type or "pdf",
+            }
+            for item in download_candidates
+        ]
         if candidates:
-            chosen = sorted(candidates, key=lambda item: item.priority)[0]
+            # Keep a stable landing page as the user-facing access link when
+            # one exists; the separately sorted download list still prefers
+            # the best direct public file candidate.
+            access_candidates = [candidate for candidate in candidates if not candidate.downloadable] or candidates
+            chosen = sorted(access_candidates, key=lambda item: item.priority)[0]
             record.best_access_url = chosen.url
             record.best_legal_access_url = chosen.url
             record.notes = _append_note(record.notes, chosen.label)
-            download_candidates = [candidate for candidate in candidates if candidate.downloadable]
             if download_candidates:
-                download = sorted(download_candidates, key=lambda item: item.priority)[0]
+                download = download_candidates[0]
                 record.is_downloadable = True
                 record.download_url = download.url
                 record.pdf_url = record.pdf_url or download.url
@@ -80,23 +103,42 @@ class BestLegalAccessResolver:
 
     def _candidates(self, record: LiteratureRecord) -> list[AccessCandidate]:
         candidates: list[AccessCandidate] = []
+        seen: set[str] = set()
+
+        def add(candidate: AccessCandidate) -> None:
+            if candidate.url and candidate.url not in seen:
+                candidates.append(candidate)
+                seen.add(candidate.url)
+
+        for item in record.raw.get("download_candidates", []):
+            if not isinstance(item, dict) or not item.get("url"):
+                continue
+            add(AccessCandidate(
+                str(item["url"]), int(item.get("priority", 50)), str(item.get("label") or "公开全文候选"),
+                True, str(item.get("source") or "source-provided candidate"), item.get("file_type") or "pdf",
+            ))
         if record.download_permission_verified and record.download_url:
-            candidates.append(AccessCandidate(record.download_url, 20, "官方可下载全文", True, record.download_source or "verified source", record.download_file_type))
+            add(AccessCandidate(record.download_url, _download_priority(record.download_source), "官方可下载全文", True, record.download_source or "verified source", record.download_file_type))
         if record.open_access_url:
-            candidates.append(AccessCandidate(record.open_access_url, 10, "Open Access", False, "OA landing page"))
+            add(AccessCandidate(record.open_access_url, 10, "Open Access", False, "OA landing page"))
         if record.repository_url:
-            candidates.append(AccessCandidate(record.repository_url, 12, "机构仓储全文", False, "institutional repository"))
-        if record.pdf_url and record.is_open_access:
-            candidates.append(AccessCandidate(record.pdf_url, 15, "官方公开 PDF", True, record.pdf_source or "OA location", "pdf"))
+            add(AccessCandidate(record.repository_url, 12, "机构仓储全文", False, "institutional repository"))
+        if record.pdf_url:
+            # Do not suppress a usable public PDF merely because an upstream
+            # provider did not set is_open_access. The download phase is the
+            # final gate and rejects login/paywall/HTML/error responses.
+            label = "官方公开 PDF" if record.is_open_access else "公开 PDF 候选（下载时验证）"
+            source = record.pdf_source or ("OA location" if record.is_open_access else "source-provided PDF URL")
+            add(AccessCandidate(record.pdf_url, _download_priority(source, record.is_open_access), label, True, source, "pdf"))
         if record.raw.get("unpaywall_pdf_url") and record.raw.get("unpaywall", {}).get("is_oa"):
-            candidates.append(AccessCandidate(record.raw["unpaywall_pdf_url"], 15, "官方可下载全文", True, "Unpaywall OA location"))
+            add(AccessCandidate(record.raw["unpaywall_pdf_url"], 12, "官方可下载全文", True, "Unpaywall OA location", "pdf"))
         semantic_oa = record.raw.get("openAccessPdf") or record.raw.get("open_access_pdf") or {}
         if semantic_oa.get("url"):
-            candidates.append(AccessCandidate(semantic_oa["url"], 16, "公开全文", True, "Semantic Scholar OA location", "pdf"))
+            add(AccessCandidate(semantic_oa["url"], 12, "公开全文", True, "Semantic Scholar OA location", "pdf"))
         if record.doi_url:
-            candidates.append(AccessCandidate(record.doi_url, 30, "DOI 页面", False, "DOI"))
+            add(AccessCandidate(record.doi_url, 30, "DOI 页面", False, "DOI"))
         if record.publisher_url:
-            candidates.append(AccessCandidate(record.publisher_url, 40, "Publisher page", False, "publisher"))
+            add(AccessCandidate(record.publisher_url, 40, "Publisher page", False, "publisher"))
         return candidates
 
 
@@ -106,3 +148,18 @@ def _first_location(locations: list[dict[str, Any]] | None) -> dict[str, Any] | 
 
 def _append_note(existing: str | None, note: str) -> str:
     return "; ".join(dict.fromkeys(filter(None, [existing, note])))
+
+
+def _download_priority(source: str | None, is_oa: bool = False) -> int:
+    text = (source or "").casefold()
+    if any(token in text for token in ("repository", "arxiv", "europe pmc", "hal", "zenodo", "pmc")):
+        return 10
+    if any(token in text for token in ("oatd", "theses.fr", "thesis")):
+        return 20
+    if any(token in text for token in ("doaj", "unpaywall", "semantic scholar")):
+        return 30
+    if any(token in text for token in ("osti", "oecd", "nea", "inl", "nrc", "inis")):
+        return 40
+    if "publisher" in text or "official" in text:
+        return 50
+    return 14 if is_oa else 50
